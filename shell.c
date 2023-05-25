@@ -1,120 +1,72 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
+#include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-
+#include <unistd.h>
 #define BUFFER_SIZE 1024
-#define TOKEN_DELIMITERS " \t\r\n\a"
-
-/**
- * tokenize_input - Tokenizes the input command line
- * @input: The input command line string
- *
- * Return: An array of tokens
- */
-char **tokenize_input(char *input)
-{
-    int buffer_size = BUFFER_SIZE;
-    int position = 0;
-    char **tokens = malloc(buffer_size * sizeof(char *));
-    char *token;
-    
-    if (!tokens)
-    {
-        perror("malloc");
-        exit(EXIT_FAILURE);
-    }
-    
-    token = strtok(input, TOKEN_DELIMITERS);
-    while (token)
-    {
-        tokens[position] = token;
-        position++;
-        
-        if (position >= buffer_size)
-        {
-            buffer_size += BUFFER_SIZE;
-            tokens = realloc(tokens, buffer_size * sizeof(char *));
-            
-            if (!tokens)
-            {
-                perror("realloc");
-                exit(EXIT_FAILURE);
-            }
-        }
-        
-        token = strtok(NULL, TOKEN_DELIMITERS);
-    }
-    
-    tokens[position] = NULL;
-    return tokens;
+#define MAX_ARGS 64
+char *get_path_command(char *command) {
+char *path_env = getenv("PATH");
+char *token;
+char *path;
+token = strtok(path_env, ":");
+while (token != NULL) {
+path = malloc(strlen(token) + strlen(command) + 2);
+sprintf(path, "%s/%s", token, command);
+if (access(path, X_OK) == 0)
+return path;
+free(path);
+token = strtok(NULL, ":");
 }
-
-/**
- * execute_command - Executes the given command with arguments
- * @args: The array of command line arguments
- */
-void execute_command(char **args)
-{
-    execvp(args[0], args);
-    
-    perror(args[0]);
-    exit(EXIT_FAILURE);
+return NULL;
 }
-
-/**
- * main - Entry point of the program
- *
- * Return: 0 on success
- */
-int main(void)
-{
-    char buffer[BUFFER_SIZE];
-    ssize_t n_read;
-    pid_t pid;
-    int status;
-    char **args;
-    
-    while (1)
-    {
-        printf("#cisfun$ ");
-        
-        n_read = read(STDIN_FILENO, buffer, BUFFER_SIZE);
-        if (n_read == -1)
-        {
-            perror("read");
-            exit(EXIT_FAILURE);
-        }
-        
-        if (n_read == 0)
-            break;
-        
-        buffer[n_read - 1] = '\0';
-        args = tokenize_input(buffer);
-        
-        pid = fork();
-        if (pid == -1)
-        {
-            perror("fork");
-            exit(EXIT_FAILURE);
-        }
-        
-        if (pid == 0)
-        {
-            execute_command(args);
-        }
-        else
-        {
-            waitpid(pid, &status, 0);
-        }
-        
-        free(args);
-    }
-    
-    printf("\n");
-    return (0);
+int main(void) {
+char input[BUFFER_SIZE];
+char *prompt = "#cisfun$ ";
+pid_t pid;
+char inputCopy[BUFFER_SIZE];
+while (1) {
+char *args[MAX_ARGS];
+int argCount = 0;
+char *token;
+char *command;
+char *path_command;
+printf("%s", prompt);
+if (fgets(input, sizeof(input), stdin) == NULL) {
+printf("\n");
+break;
 }
-
+input[strcspn(input, "\n")] = '\0';
+if (strlen(input) == 0)
+continue;
+strcpy(inputCopy, input);
+token = strtok(inputCopy, " ");
+while (token != NULL && argCount < MAX_ARGS - 1) {
+args[argCount++] = token;
+token = strtok(NULL, " ");
+}
+args[argCount] = NULL;
+command = args[0];
+path_command = get_path_command(command);
+pid = fork();
+if (pid < 0) {
+perror("Fork failed");
+exit(EXIT_FAILURE);
+} else if (pid == 0) {
+if (path_command != NULL) {
+if (execvp(path_command, args) == -1) {
+fprintf(stderr, "%s: command not found\n", command);
+exit(EXIT_FAILURE);
+}
+} else {
+fprintf(stderr, "%s: command not found\n", command);
+exit(EXIT_FAILURE);
+}
+} else {
+waitpid(pid, NULL, 0);
+}
+free(path_command);
+}
+return (0);
+}
